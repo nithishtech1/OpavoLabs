@@ -1,7 +1,7 @@
 // TzKT reader. Footer must show "Powered by TzKT API" linking to tzkt.io.
 // Shapes returned match INTERFACE.md "App-side shapes".
 const API = import.meta.env.VITE_TZKT_API;
-const ADDR = import.meta.env.VITE_CONTRACT;
+const ADDR = import.meta.env.VITE_CONTRACT_ADDRESS || import.meta.env.VITE_CONTRACT;
 
 async function get(path) {
   const res = await fetch(API + path);

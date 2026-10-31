@@ -3,7 +3,7 @@
 import { Tezos, connect, disconnect, getBalanceMutez as balance } from './tezos.js';
 import * as tzkt from './tzkt.js';
 
-const ADDR = import.meta.env.VITE_CONTRACT;
+const ADDR = import.meta.env.VITE_CONTRACT_ADDRESS || import.meta.env.VITE_CONTRACT;
 let address = null;
 
 export async function connectWallet() { address = await connect(); return address; }
