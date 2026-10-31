@@ -1,17 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Wallet } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge.jsx';
 import Receipt from '../components/Receipt.jsx';
 import { useWallet } from '../hooks/useWallet.js';
 import * as api from '../lib/chain-api.js';
 
-const EXPLORER = import.meta.env.VITE_EXPLORER_BASE || 'https://shadownet.tzkt.io';
-
 export default function ItemDetailPage() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { address, isAdmin } = useWallet();
+  const { address, isAdmin, connect } = useWallet();
   const [item, setItem] = useState(null);
   const [loans, setLoans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,8 +33,8 @@ export default function ItemDetailPage() {
   const activeLoan = loans.find(l => ['CHECKOUT_PENDING','ACTIVE','RETURN_PENDING'].includes(l.status));
   const canCheckout = address && !isAdmin && item.status === 'AVAILABLE';
   const canReturn = address && !isAdmin && activeLoan && activeLoan.student === address && activeLoan.status === 'ACTIVE';
-  const canApproveCheckout = address && activeLoan && activeLoan.status === 'CHECKOUT_PENDING';
-  const canApproveReturn = address && activeLoan && activeLoan.status === 'RETURN_PENDING';
+  const canApproveCheckout = activeLoan && activeLoan.status === 'CHECKOUT_PENDING';
+  const canApproveReturn = activeLoan && activeLoan.status === 'RETURN_PENDING';
 
   return (
     <div>
@@ -59,7 +57,13 @@ export default function ItemDetailPage() {
             {activeLoan.status === 'RETURN_PENDING' && <p className="mt-1 text-orange-700">Student has submitted a return request. Admin must approve.</p>}
           </div>
         )}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2 items-center">
+          {!address && item.status === 'AVAILABLE' && (
+            <button onClick={connect}
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
+              <Wallet size={14} /> Connect wallet to check out
+            </button>
+          )}
           {canCheckout && (
             <button onClick={() => nav(`/checkout/${id}`)}
               className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
@@ -95,10 +99,10 @@ export default function ItemDetailPage() {
             {loans.map(loan => (
               <div key={loan.id} className="px-4 py-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-700">Loan #{loan.id}</span>
+                  <span className="text-gray-700 font-medium">Loan #{loan.id}</span>
                   <StatusBadge status={loan.status} />
                 </div>
-                <p className="text-gray-500 text-xs mt-1">{loan.student}</p>
+                <p className="text-gray-500 text-xs mt-1 font-mono">{loan.student}</p>
                 <p className="text-gray-400 text-xs">{new Date(loan.requestedAt).toLocaleString()}</p>
               </div>
             ))}

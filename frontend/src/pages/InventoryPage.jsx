@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, ChevronRight, Plus } from 'lucide-react';
+import { Package, ChevronRight, Plus, Wallet } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { useWallet } from '../hooks/useWallet.js';
 import * as api from '../lib/chain-api.js';
@@ -17,7 +17,7 @@ export default function InventoryPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const { address, isAdmin } = useWallet();
+  const { address, isAdmin, connect } = useWallet();
   const nav = useNavigate();
 
   useEffect(() => {
@@ -53,11 +53,23 @@ export default function InventoryPage() {
       {loading && <Skeleton />}
       {error && <div className="text-red-600 bg-red-50 p-4 rounded-lg border border-red-200 text-sm">{error}</div>}
       {!loading && !error && items.length === 0 && (
-        <div className="text-center py-16 text-gray-500">
+        <div className="text-center py-16 text-gray-500 bg-white border border-gray-200 rounded-lg p-6">
           <Package size={32} className="mx-auto mb-3 text-gray-300" />
-          <p className="font-medium">No equipment yet.</p>
-          {address && isAdmin && <p className="text-sm mt-1">Register the first item using the button above.</p>}
-          {!address && <p className="text-sm mt-1">Connect your wallet to get started.</p>}
+          <p className="font-medium text-gray-800">No equipment registered yet</p>
+          {address && isAdmin && (
+            <p className="text-sm mt-1">Register the first item using the button above.</p>
+          )}
+          {!address && (
+            <div className="mt-4">
+              <p className="text-sm text-gray-500 mb-3">Admin can register equipment after connecting wallet.</p>
+              <button
+                onClick={connect}
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+              >
+                <Wallet size={14} /> Connect wallet
+              </button>
+            </div>
+          )}
         </div>
       )}
       {!loading && items.length > 0 && (

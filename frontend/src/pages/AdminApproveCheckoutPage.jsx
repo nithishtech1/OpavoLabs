@@ -47,8 +47,12 @@ export default function AdminApproveCheckoutPage() {
       });
       setReceipt(result?.opHash);
       setDone(true);
-    } catch (e) { setError(e.message); t.error(e.message); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setError(e.message);
+      t.error(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const match = downloadedHash && loan?.checkoutHash &&
@@ -90,7 +94,7 @@ export default function AdminApproveCheckoutPage() {
           <Receipt opHash={receipt} label="Your transaction:" />
         </div>
       ) : (
-        <button onClick={approve} disabled={busy || !match}
+        <button onClick={approve} disabled={busy || (downloadedHash && !match)}
           className="mt-4 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-md text-sm transition-colors">
           {busy ? 'Waiting for Temple...' : 'Approve handover'}
         </button>
