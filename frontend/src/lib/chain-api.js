@@ -7,7 +7,7 @@ import { friendlyError } from './errors.js';
 export const IS_MOCK = chain.IS_MOCK;
 
 export async function getAdmin() {
-  if (IS_MOCK) return chain.MOCK_ACCOUNTS?.Admin || 'tz1MockAdmin';
+  if (IS_MOCK) return chain.MOCK_ACCOUNTS?.Admin || 'tz1MockAdminxxxxxxxxxxxxxxxxxxxxxxxx';
   return tzktGetAdmin();
 }
 
@@ -21,7 +21,7 @@ export async function getEquipment(id) {
 
 export async function getLoan(id) {
   const loans = await chain.listLoans();
-  return loans.find(l => l.id === Number(id)) || null;
+  return loans.find(l => Number(l.id) === Number(id)) || null;
 }
 
 export async function listLoans() {
@@ -63,20 +63,48 @@ export const registerEquipment = (name, depositMutez, onState) =>
 export const requestCheckout = (equipmentId, cid, hash, depositMutez, onState) =>
   wrap(() => chain.requestCheckout(equipmentId, cid, hash, depositMutez, onState));
 
-export const approveCheckout = (loanId, hash, onState) =>
-  wrap(() => chain.approveCheckout(loanId, hash, onState));
+export async function approveCheckout(loanId, hash, onState) {
+  let seenHash = hash;
+  let cb = onState;
+  if (typeof hash === 'function') {
+    cb = hash;
+    seenHash = null;
+  }
+  if (!seenHash) {
+    const loan = await getLoan(loanId);
+    seenHash = loan?.checkoutHash;
+  }
+  return wrap(() => chain.approveCheckout(Number(loanId), seenHash, cb));
+}
 
 export const rejectCheckout = (loanId, onState) =>
-  wrap(() => chain.rejectCheckout(loanId, onState));
+  wrap(() => chain.rejectCheckout(Number(loanId), onState));
 
 export const cancelRequest = (loanId, onState) =>
-  wrap(() => chain.cancelRequest(loanId, onState));
+  wrap(() => chain.cancelRequest(Number(loanId), onState));
 
 export const requestReturn = (loanId, cid, hash, onState) =>
-  wrap(() => chain.requestReturn(loanId, cid, hash, onState));
+  wrap(() => chain.requestReturn(Number(loanId), cid, hash, onState));
 
-// Demo: zero penalty always
-export const approveReturn = (loanId, penaltyMutez = 0, hash, onState) =>
-  wrap(() => chain.approveReturn(loanId, hash, penaltyMutez, onState));
+// Demo: zero penalty always; flexible parameter order
+export async function approveReturn(loanId, arg2, arg3, arg4) {
+  let hash, penaltyMutez = 0, onState;
+  if (typeof arg2 === 'string' && /^[0-9a-fA-F]{64}$/.test(arg2.replace(/^0x/, ''))) {
+    hash = arg2;
+    penaltyMutez = typeof arg3 === 'number' ? arg3 : 0;
+    onState = typeof arg4 === 'function' ? arg4 : (typeof arg3 === 'function' ? arg3 : undefined);
+  } else if (typeof arg2 === 'number') {
+    penaltyMutez = arg2;
+    if (typeof arg3 === 'string') hash = arg3;
+    onState = typeof arg4 === 'function' ? arg4 : (typeof arg3 === 'function' ? arg3 : undefined);
+  } else if (typeof arg2 === 'function') {
+    onState = arg2;
+  }
+  if (!hash) {
+    const loan = await getLoan(loanId);
+    hash = loan?.returnHash;
+  }
+  return wrap(() => chain.approveReturn(Number(loanId), hash, penaltyMutez, onState));
+}
 
 export { listHistory };

@@ -1,15 +1,23 @@
 // Real chain: Taquito for writes, TzKT for reads. Same exports as chain.mock.js.
 // Parameter names MUST match contracts/INTERFACE.md exactly.
-import { Tezos, connect, disconnect, getBalanceMutez as balance } from './tezos.js';
+import { Tezos, connect, disconnect, getBalanceMutez as balance, getAddress as getTezosAddress } from './tezos.js';
 import * as tzkt from './tzkt.js';
 
 const ADDR = import.meta.env.VITE_CONTRACT_ADDRESS || import.meta.env.VITE_CONTRACT;
-let address = null;
 
-export async function connectWallet() { address = await connect(); return address; }
-export async function disconnectWallet() { await disconnect(); address = null; }
-export async function getAddress() { return address; }
-export const getBalanceMutez = (addr = address) => balance(addr);
+export async function connectWallet() {
+  return await connect();
+}
+
+export async function disconnectWallet() {
+  await disconnect();
+}
+
+export async function getAddress() {
+  return await getTezosAddress();
+}
+
+export const getBalanceMutez = (addr) => balance(addr);
 
 export const getAdmin = tzkt.getAdmin;
 export const listEquipment = tzkt.listEquipment;
@@ -28,16 +36,32 @@ async function write(onState, build, sendOpts = {}) {
   const c = await Tezos.wallet.at(ADDR);
   onState?.('waiting');
   const op = await build(c).send(sendOpts);
-  onState?.('sending');
-  onState?.('confirming');
-  await op.confirmation(1);
-  await tzkt.sleep(3000); // indexer lag
-  onState?.('done');
-  return op.opHash;
+  const hash = op.opHash;
+  onState?.('sending', hash);
+  onState?.('confirming', hash);
+
+  let confirmed = false;
+  const slowTimer = setTimeout(() => {
+    if (!confirmed) {
+      onState?.('slow', hash);
+    }
+  }, 60000);
+
+  try {
+    await op.confirmation(1);
+    confirmed = true;
+    clearTimeout(slowTimer);
+    await tzkt.sleep(3000); // indexer lag
+    onState?.('done', hash);
+    return hash;
+  } catch (err) {
+    clearTimeout(slowTimer);
+    throw err;
+  }
 }
 
 export const registerEquipment = (name, depositMutez, onState) =>
-  write(onState, (c) => c.methodsObject.register_equipment({ name: String(name), deposit: Number(depositMutez) }));
+  write(onState, (c) => c.methodsObject.register_equipment({ name: String(name).trim(), deposit: Number(depositMutez) }), { amount: 0 });
 
 export const requestCheckout = (equipmentId, cid, hash, depositMutez, onState) =>
   write(onState,

@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle } from 'lucide-react';
-import { useWallet } from '../hooks/useWallet.js';
+import { ArrowLeft, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { sha256Hex } from '../lib/hash.js';
-import { photoUrl } from '../lib/ipfs.js';
-import { VerifyVerdict, Fingerprint } from '../components/FingerprintDisplay.jsx';
+import { photoUrl, fetchPhotoBlob } from '../lib/ipfs.js';
+import { Fingerprint } from '../components/FingerprintDisplay.jsx';
 import Receipt from '../components/Receipt.jsx';
 import { toastOp, Toaster } from '../components/Toast.jsx';
 import * as api from '../lib/chain-api.js';
@@ -12,95 +11,197 @@ import * as api from '../lib/chain-api.js';
 export default function AdminApproveCheckoutPage() {
   const { loanId } = useParams();
   const nav = useNavigate();
-  const { address } = useWallet();
   const [loan, setLoan] = useState(null);
+  const [item, setItem] = useState(null);
   const [downloadedHash, setDownloadedHash] = useState('');
-  const [imgLoaded, setImgLoaded] = useState(false);
+  const [fetchingPhoto, setFetchingPhoto] = useState(true);
   const [receipt, setReceipt] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    api.getLoan(loanId).then(async (l) => {
-      setLoan(l);
-      if (l?.checkoutCid) {
-        try {
-          const url = photoUrl(l.checkoutCid);
-          const res = await fetch(url);
-          const blob = await res.blob();
-          const h = await sha256Hex(blob);
-          setDownloadedHash(h);
-        } catch {}
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const l = await api.getLoan(loanId);
+        if (cancelled) return;
+        setLoan(l);
+        if (l?.equipmentId != null) {
+          api.getEquipment(l.equipmentId).then((eq) => {
+            if (!cancelled) setItem(eq);
+          }).catch(() => {});
+        }
+        if (l?.checkoutCid) {
+          setFetchingPhoto(true);
+          try {
+            const blob = await fetchPhotoBlob(l.checkoutCid);
+            const h = await sha256Hex(blob);
+            if (!cancelled) setDownloadedHash(h);
+          } catch (err) {
+            console.error('IPFS fetch error:', err);
+            if (!cancelled) setError(err.message);
+          } finally {
+            if (!cancelled) setFetchingPhoto(false);
+          }
+        } else {
+          setFetchingPhoto(false);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e.message);
       }
-    });
+    };
+    load();
+    return () => { cancelled = true; };
   }, [loanId]);
 
   const approve = async () => {
-    setBusy(true); setError('');
-    const t = toastOp('Approve handover');
+    setBusy(true);
+    setError('');
+    const t = toastOp('Approve checkout');
     try {
-      const result = await api.approveCheckout(Number(loanId), loan.checkoutHash, (state) => {
+      const result = await api.approveCheckout(Number(loanId), loan.checkoutHash, (state, opHash) => {
         if (state === 'waiting') t.signing();
-        if (state === 'confirming') t.confirming();
-        if (state === 'done') t.done('Handover approved');
+        if (state === 'confirming') t.confirming(opHash);
+        if (state === 'slow') t.slow(opHash);
+        if (state === 'done') t.done('Checkout approved by admin!');
       });
       setReceipt(result?.opHash);
       setDone(true);
     } catch (e) {
-      setError(e.message);
-      t.error(e.message);
+      console.error('Approve checkout error:', e);
+      const msg = e?.message || String(e);
+      setError(msg);
+      t.error(msg);
     } finally {
       setBusy(false);
     }
   };
 
-  const match = downloadedHash && loan?.checkoutHash &&
-    downloadedHash.toLowerCase() === loan.checkoutHash.toLowerCase();
+  const match = Boolean(
+    downloadedHash &&
+    loan?.checkoutHash &&
+    downloadedHash.toLowerCase() === loan.checkoutHash.toLowerCase()
+  );
 
-  if (!loan) return <div className="animate-pulse h-40 bg-gray-100 rounded-lg" />;
+  const mismatch = Boolean(
+    downloadedHash &&
+    loan?.checkoutHash &&
+    downloadedHash.toLowerCase() !== loan.checkoutHash.toLowerCase()
+  );
+
+  if (!loan) {
+    return (
+      <div className="py-12 text-center text-gray-500">
+        <RefreshCw size={24} className="animate-spin mx-auto mb-2 opacity-50" />
+        <p>Loading loan record #{loanId}...</p>
+      </div>
+    );
+  }
 
   return (
-    <div>
+    <div className="max-w-xl mx-auto space-y-5">
       <Toaster position="top-right" />
-      <button onClick={() => nav(-1)} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-800 mb-4 transition-colors">
+      <button
+        onClick={() => nav(-1)}
+        className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-800 transition-colors"
+      >
         <ArrowLeft size={15} /> Back
       </button>
-      <h1 className="text-xl font-semibold text-gray-900 mb-6">Review checkout request — loan #{loanId}</h1>
 
-      {loan.checkoutCid && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-          <p className="text-sm font-medium text-gray-700 mb-2">Photo submitted by student</p>
-          <img src={photoUrl(loan.checkoutCid)} alt="Checkout photo" onLoad={() => setImgLoaded(true)}
-            className="h-56 object-contain rounded-lg border border-gray-200 w-full bg-gray-50" />
-        </div>
-      )}
-
-      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 space-y-2">
-        <Fingerprint label="Recorded fingerprint (SHA-256)" value={loan.checkoutHash} />
-        {downloadedHash && <Fingerprint label="Retrieved fingerprint (SHA-256)" value={downloadedHash} />}
+      <div>
+        <h1 className="text-xl font-semibold text-gray-900">
+          Review checkout request — loan #{loanId}
+        </h1>
+        {item && <p className="text-sm text-gray-500 mt-0.5">Item: {item.name}</p>}
       </div>
 
-      {downloadedHash && <VerifyVerdict localHash={downloadedHash} remoteHash={loan.checkoutHash} />}
+      {loan.checkoutCid && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+          <p className="text-sm font-medium text-gray-700">Photo fetched from IPFS</p>
+          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50 h-56 flex items-center justify-center">
+            {fetchingPhoto ? (
+              <div className="text-gray-400 flex items-center gap-2 text-xs">
+                <RefreshCw size={14} className="animate-spin" /> Fetching photo from IPFS...
+              </div>
+            ) : (
+              <img
+                src={photoUrl(loan.checkoutCid)}
+                alt="Checkout condition"
+                className="h-full w-full object-contain"
+              />
+            )}
+          </div>
+        </div>
+      )}
 
-      {error && <div className="text-red-600 bg-red-50 p-3 rounded-md text-sm border border-red-200 mt-4">{error}</div>}
+      {/* Fingerprint displays */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-2">
+        <Fingerprint label="Recorded on-chain (SHA-256)" value={loan.checkoutHash} />
+        {downloadedHash && (
+          <Fingerprint label="Retrieved from IPFS (SHA-256)" value={downloadedHash} />
+        )}
+      </div>
+
+      {/* Verification Verdict */}
+      {match && (
+        <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500 text-green-900 flex items-center gap-3">
+          <CheckCircle size={24} className="text-green-600 shrink-0" />
+          <div>
+            <p className="font-bold text-sm">Photo verified: unchanged since handover</p>
+            <p className="text-xs text-green-700 mt-0.5">
+              The retrieved photo matches the on-chain SHA-256 fingerprint.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {mismatch && (
+        <div className="p-4 rounded-lg border-2 bg-red-50 border-red-500 text-red-900 flex items-center gap-3">
+          <XCircle size={24} className="text-red-600 shrink-0" />
+          <div>
+            <p className="font-bold text-sm">Photo does not match the record</p>
+            <p className="text-xs text-red-700 mt-0.5">
+              Fingerprint mismatch detected. Approval is disabled.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="text-red-700 bg-red-50 p-3 rounded-md text-sm border border-red-200">
+          {error}
+        </div>
+      )}
 
       {done ? (
-        <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-green-800 font-medium">
-            <CheckCircle size={18} /> Approved — item checked out, loan active.
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+          <div className="flex items-center gap-2 text-green-800 font-semibold text-sm">
+            <CheckCircle size={18} /> Checked out, loan active
           </div>
-          <p className="text-sm text-gray-600 mt-1">Signed by admin.</p>
-          <Receipt opHash={receipt} label="Your transaction:" />
+          <p className="text-xs text-gray-600">Approved by admin on Tezos Shadownet.</p>
+          <Receipt opHash={receipt} label="Admin transaction:" />
+          <button
+            type="button"
+            onClick={() => nav('/')}
+            className="mt-3 text-xs font-semibold text-blue-600 hover:underline block"
+          >
+            ← Back to all equipment
+          </button>
         </div>
       ) : (
-        <button onClick={approve} disabled={busy || (downloadedHash && !match)}
-          className="mt-4 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-md text-sm transition-colors">
-          {busy ? 'Waiting for Temple...' : 'Approve handover'}
-        </button>
-      )}
-      {downloadedHash && !match && !done && (
-        <p className="text-center text-xs text-red-600 mt-2">Approve is disabled — fingerprints do not match.</p>
+        <div className="space-y-2">
+          <button
+            onClick={approve}
+            disabled={busy || mismatch || fetchingPhoto}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-md text-sm transition-colors"
+          >
+            {busy ? 'Waiting for wallet...' : 'Approve handover'}
+          </button>
+          <p className="text-center text-xs text-gray-400">
+            Visible to all wallets. Non-admin wallets will show contract rejection.
+          </p>
+        </div>
       )}
     </div>
   );

@@ -55,12 +55,17 @@ export async function requestCheckout(id, cid, hash, depositMutez, onState) {
 
 export async function approveCheckout(id, onState, seenHash) {
   let hash = seenHash;
+  let cb = onState;
+  if (typeof onState === 'string') {
+    hash = onState;
+    cb = seenHash;
+  }
   if (!hash) {
     const loan = await getLoan(id);
-    if (!loan) throw new Error('Loan not found');
+    if (!loan) throw new Error('That loan does not exist.');
     hash = loan.checkoutHash;
   }
-  return wrapWrite(() => chain.approveCheckout(Number(id), hash, onState));
+  return wrapWrite(() => chain.approveCheckout(Number(id), hash, cb));
 }
 
 export async function requestReturn(id, cid, hash, onState) {
@@ -69,15 +74,21 @@ export async function requestReturn(id, cid, hash, onState) {
 
 export async function approveReturn(id, penaltyMutez = 0, onState, seenHash) {
   let hash = seenHash;
+  let cb = onState;
+  let penalty = typeof penaltyMutez === 'number' ? penaltyMutez : 0;
+  if (typeof penaltyMutez === 'string' && /^[0-9a-fA-F]{64}$/.test(penaltyMutez)) {
+    hash = penaltyMutez;
+    penalty = 0;
+  }
   if (!hash) {
     const loan = await getLoan(id);
-    if (!loan) throw new Error('Loan not found');
+    if (!loan) throw new Error('That loan does not exist.');
     hash = loan.returnHash;
   }
-  return wrapWrite(() => chain.approveReturn(Number(id), hash, penaltyMutez, onState));
+  return wrapWrite(() => chain.approveReturn(Number(id), hash, penalty, cb));
 }
 
-// Additional helpful exports
+// Additional exports
 export const connectWallet = chain.connectWallet;
 export const disconnectWallet = chain.disconnectWallet;
 export const getAddress = chain.getAddress;

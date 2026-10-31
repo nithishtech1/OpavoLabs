@@ -7,27 +7,56 @@ import { NetworkType } from '@tezos-x/octez.connect-types';
 const RPC = import.meta.env.VITE_RPC_URL || 'https://rpc.shadownet.teztnets.com';
 export const Tezos = new TezosToolkit(RPC);
 
-let wallet = null; // single instance, created on first connect
+let wallet = null;
+
+export function getWallet() {
+  if (!wallet) {
+    wallet = new BeaconWallet({
+      name: 'OpavoLabs',
+      network: { type: NetworkType.SHADOWNET }
+    });
+    Tezos.setWalletProvider(wallet);
+  }
+  return wallet;
+}
 
 export async function connect() {
-  if (!wallet) {
-    wallet = new BeaconWallet({ name: 'OpavoLabs', network: { type: NetworkType.SHADOWNET } });
-    // Workaround from the Tezos docs: await Beacon's IndexedDB init (race condition in @taquito/beacon-wallet).
-    await wallet.client.beaconIDB.initDB().catch(() => {});
-  }
-  await wallet.requestPermissions();
-  Tezos.setWalletProvider(wallet);
-  return wallet.getPKH();
+  const w = getWallet();
+  try {
+    await w.client.beaconIDB.initDB().catch(() => {});
+  } catch {}
+  await w.requestPermissions();
+  Tezos.setWalletProvider(w);
+  return await w.getPKH();
 }
 
 export async function disconnect() {
-  await wallet?.client.clearActiveAccount();
+  const w = getWallet();
+  try {
+    await w.client.clearActiveAccount();
+  } catch {}
 }
 
 export async function getAddress() {
-  if (!wallet) return null;
-  const activeAccount = await wallet.client.getActiveAccount().catch(() => null);
-  return activeAccount?.address ?? null;
+  const w = getWallet();
+  try {
+    await w.client.beaconIDB.initDB().catch(() => {});
+    const activeAccount = await w.client.getActiveAccount().catch(() => null);
+    if (activeAccount?.address) {
+      Tezos.setWalletProvider(w);
+      return activeAccount.address;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
-export const getBalanceMutez = async (addr) => (await Tezos.tz.getBalance(addr)).toNumber();
+export const getBalanceMutez = async (addr) => {
+  if (!addr) return 0;
+  try {
+    return (await Tezos.tz.getBalance(addr)).toNumber();
+  } catch {
+    return 0;
+  }
+};

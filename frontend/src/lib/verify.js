@@ -1,16 +1,6 @@
 // Tamper-Detection Engine. Pure logic; fetch is injectable so it is unit-testable.
 import { sha256Hex } from './hash.js';
-
-async function defaultFetchBlob(cid) {
-  const { photoUrl, photoFallbackUrl, withTimeout } = await import('./ipfs.js');
-  for (const url of [photoUrl(cid), photoFallbackUrl(cid)]) {
-    try {
-      const res = await withTimeout(fetch(url), 30000, 'gateway timeout');
-      if (res.ok) return await res.blob();
-    } catch { /* try next gateway */ }
-  }
-  throw new Error('Could not fetch photo from IPFS');
-}
+import { fetchPhotoBlob } from './ipfs.js';
 
 export async function flipOneByte(blob) {
   const u8 = new Uint8Array(await blob.arrayBuffer());
@@ -19,7 +9,7 @@ export async function flipOneByte(blob) {
 }
 
 // cid + onchainHash come from the loan record. file = optional dropped local file.
-export async function verifyPhoto({ cid, onchainHash, file = null, simulateTamper = false, fetchBlob = defaultFetchBlob }) {
+export async function verifyPhoto({ cid, onchainHash, file = null, simulateTamper = false, fetchBlob = fetchPhotoBlob }) {
   let blob = file ?? (await fetchBlob(cid));
   if (simulateTamper) blob = await flipOneByte(blob);
   const computed = (await sha256Hex(blob)).toLowerCase();

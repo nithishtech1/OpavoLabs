@@ -1,49 +1,108 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import * as chain from '../lib/chain.js';
+import * as api from '../lib/chain-api.js';
+
+export function checkIsAdmin(connectedAddress, adminAddress) {
+  if (!connectedAddress || !adminAddress) return false;
+  return String(connectedAddress).trim().toLowerCase() === String(adminAddress).trim().toLowerCase();
+}
 
 const WalletCtx = createContext(null);
 
 export function WalletProvider({ children }) {
   const [address, setAddress] = useState(null);
   const [admin, setAdmin] = useState(null);
-  const [connecting, setConnecting] = useState(false);
+  const [balanceMutez, setBalanceMutez] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const isMock = api.IS_MOCK;
+  const isAdmin = checkIsAdmin(address, admin);
 
   const refresh = useCallback(async () => {
     try {
-      const a = await chain.getAddress();
-      setAddress(a || null);
-      const adm = await chain.getAdmin();
+      const [addr, adm] = await Promise.all([
+        api.getAddress().catch(() => null),
+        api.getAdmin().catch(() => null)
+      ]);
+      setAddress(addr);
       setAdmin(adm);
-    } catch {
-      // ignore
+      if (addr) {
+        const bal = await api.getBalanceMutez(addr).catch(() => null);
+        setBalanceMutez(bal);
+      } else {
+        setBalanceMutez(null);
+      }
+    } catch (e) {
+      console.error('Wallet refresh error:', e);
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Initial load
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Periodic polling + window focus detection for painless wallet switching in Temple
+  useEffect(() => {
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    const interval = setInterval(refresh, 3000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
+  }, [refresh]);
 
   const connect = useCallback(async () => {
-    setConnecting(true);
+    setLoading(true);
+    setError(null);
     try {
-      const a = await chain.connectWallet();
-      setAddress(a);
-      const adm = await chain.getAdmin();
+      const pkh = await api.connectWallet();
+      setAddress(pkh);
+      const [bal, adm] = await Promise.all([
+        api.getBalanceMutez(pkh).catch(() => null),
+        api.getAdmin().catch(() => null)
+      ]);
+      setBalanceMutez(bal);
       setAdmin(adm);
-      return a;
+      return pkh;
+    } catch (e) {
+      const msg = e?.message || String(e);
+      if (/abort|cancel|declin|denied|reject/i.test(msg)) {
+        setError('Connection cancelled in wallet.');
+      } else {
+        setError(msg);
+      }
+      throw e;
     } finally {
-      setConnecting(false);
+      setLoading(false);
     }
   }, []);
 
   const disconnect = useCallback(async () => {
-    await chain.disconnectWallet();
+    try {
+      await api.disconnectWallet();
+    } catch {}
     setAddress(null);
+    setBalanceMutez(null);
   }, []);
 
-  const isAdmin = address && admin && address === admin;
-  const isMock = chain.IS_MOCK;
-
   return (
-    <WalletCtx.Provider value={{ address, admin, isAdmin, isMock, connecting, connect, disconnect, refresh }}>
+    <WalletCtx.Provider
+      value={{
+        address,
+        admin,
+        isAdmin,
+        balanceMutez,
+        isMock,
+        loading,
+        error,
+        connect,
+        disconnect,
+        refresh,
+        checkIsAdmin
+      }}
+    >
       {children}
     </WalletCtx.Provider>
   );
@@ -51,6 +110,6 @@ export function WalletProvider({ children }) {
 
 export function useWallet() {
   const ctx = useContext(WalletCtx);
-  if (!ctx) throw new Error('useWallet must be inside WalletProvider');
+  if (!ctx) throw new Error('useWallet must be used within a WalletProvider');
   return ctx;
 }

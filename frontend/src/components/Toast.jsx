@@ -9,11 +9,12 @@ export function toast(msg, type = 'default') {
 }
 
 export function toastOp(label) {
-  const id = _toast.loading(`${label}: signing...`);
+  const id = _toast.loading(`${label}: signing in wallet...`);
   return {
-    signing: () => _toast.loading(`${label}: signing...`, { id }),
-    confirming: () => _toast.loading(`${label}: confirming...`, { id }),
-    done: (msg) => _toast.success(msg || `${label}: done`, { id }),
-    error: (msg) => _toast.error(msg || `${label}: failed`, { id }),
+    signing: () => _toast.loading(`${label}: waiting for wallet signature...`, { id }),
+    confirming: (hash) => _toast.loading(`${label}: confirming on Tezos Shadownet...`, { id }),
+    slow: (hash) => _toast(`${label}: Still confirming, check the explorer`, { id, icon: '⏳', duration: 15000 }),
+    done: (msg) => _toast.success(msg || `${label}: confirmed on-chain!`, { id }),
+    error: (msg) => _toast.error(msg || `${label}: transaction failed`, { id }),
   };
 }
